@@ -1,4 +1,6 @@
-# n8n Automation Marketplace
+# n8n-universe
+
+**n8n Automation Marketplace** - Sell 25,000 n8n workflows via subscriptions or downloads.
 
 A marketplace for selling n8n automation workflows.
 
