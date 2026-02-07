@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "n8n Workflow Index Schema",
+  "description": "Schema for indexed n8n workflows in marketplace",
+  "type": "object",
+  "properties": {
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique workflow ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Workflow name"
+          },
+          "description": {
+            "type": "string",
+            "description": "AI-generated or human-written description"
+          },
+          "node_count": {
+            "type": "integer",
+            "description": "Number of nodes in workflow"
+          },
+          "connection_count": {
+            "type": "integer",
+            "description": "Number of connections between nodes"
+          },
+          "complexity": {
+            "type": "string",
+            "enum": ["simple", "medium", "complex"]
+          },
+          "triggers": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Trigger types (webhook, cron, manual, etc.)"
+          },
+          "actions": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Action node types"
+          },
+          "integrations": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Third-party integrations used"
+          },
+          "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Searchable tags"
+          },
+          "category": {
+            "type": "string",
+            "description": "Primary category"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": ["beginner", "intermediate", "advanced"]
+          },
+          "price": {
+            "type": "number",
+            "description": "Price in USD (optional, defaults to $1)"
+          },
+          "popularity": {
+            "type": "integer",
+            "description": "Download count (starts at 0)"
+          },
+          "rating": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5,
+            "description": "User rating (optional)"
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Path to original JSON file"
+          },
+          "indexed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When workflow was indexed"
+          }
+        },
+        "required": ["id", "name", "node_count", "complexity", "triggers", "actions", "category", "difficulty"]
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "total_workflows": {
+          "type": "integer"
+        },
+        "indexed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "string",
+          "description": "Indexer version"
+        }
+      }
+    }
+  }
+}
