@@ -1,0 +1,112 @@
+{
+  "indexed_at": "2026-02-08T01:50:03.658620+00:00",
+  "total_workflows": 4,
+  "workflows": [
+    {
+      "name": "Untitled Workflow",
+      "description": "Automates a business process end-to-end",
+      "node_count": 0,
+      "connection_count": 0,
+      "file_path": ".eslintrc.json",
+      "file_size": 40,
+      "complexity": "simple",
+      "category": "general",
+      "difficulty": "beginner",
+      "tags": [
+        "general"
+      ],
+      "triggers": [],
+      "actions": [],
+      "integrations": [],
+      "price": 3,
+      "popularity": 0,
+      "rating": null,
+      "created_at": "2026-02-08T01:50:03.656567+00:00",
+      "updated_at": "2026-02-08T01:50:03.656583+00:00"
+    },
+    {
+      "name": "Untitled Workflow",
+      "description": "Automates a business process end-to-end",
+      "node_count": 0,
+      "connection_count": 0,
+      "file_path": "tsconfig.json",
+      "file_size": 578,
+      "complexity": "simple",
+      "category": "general",
+      "difficulty": "beginner",
+      "tags": [
+        "general"
+      ],
+      "triggers": [],
+      "actions": [],
+      "integrations": [],
+      "price": 3,
+      "popularity": 0,
+      "rating": null,
+      "created_at": "2026-02-08T01:50:03.656754+00:00",
+      "updated_at": "2026-02-08T01:50:03.656758+00:00"
+    },
+    {
+      "name": "n8n-universe",
+      "description": "Automates a business process end-to-end",
+      "node_count": 0,
+      "connection_count": 0,
+      "file_path": "package-lock.json",
+      "file_size": 229672,
+      "complexity": "simple",
+      "category": "general",
+      "difficulty": "beginner",
+      "tags": [
+        "general"
+      ],
+      "triggers": [],
+      "actions": [],
+      "integrations": [],
+      "price": 3,
+      "popularity": 0,
+      "rating": null,
+      "created_at": "2026-02-08T01:50:03.658225+00:00",
+      "updated_at": "2026-02-08T01:50:03.658230+00:00"
+    },
+    {
+      "name": "n8n-universe",
+      "description": "Automates a business process end-to-end",
+      "node_count": 0,
+      "connection_count": 0,
+      "file_path": "package.json",
+      "file_size": 1420,
+      "complexity": "simple",
+      "category": "general",
+      "difficulty": "beginner",
+      "tags": [
+        "general"
+      ],
+      "triggers": [],
+      "actions": [],
+      "integrations": [],
+      "price": 3,
+      "popularity": 0,
+      "rating": null,
+      "created_at": "2026-02-08T01:50:03.658355+00:00",
+      "updated_at": "2026-02-08T01:50:03.658357+00:00"
+    }
+  ],
+  "summary": {
+    "unique_tags": 1,
+    "top_tags": {
+      "general": 4
+    },
+    "unique_integrations": 0,
+    "top_integrations": {},
+    "unique_categories": 1,
+    "categories_breakdown": {
+      "general": 4
+    },
+    "complexity_distribution": {
+      "simple": 4
+    },
+    "price_distribution": {
+      "$3": 4
+    }
+  }
+}
