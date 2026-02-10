@@ -1,3 +1,4 @@
+# .env.local temporarily removed to add credentials
 # Dependencies
 node_modules/
 __pycache__/
