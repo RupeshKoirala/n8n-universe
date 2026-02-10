@@ -32,3 +32,4 @@ workflows/*.json
 dist/
 build/
 .next/
+.env.local.save
