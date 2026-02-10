@@ -1,0 +1,549 @@
+#!/usr/bin/env python3
+"""
+Enhanced n8n Workflow Indexer
+Processes all workflow JSON files, extracts rich metadata, and uploads to Supabase
+"""
+
+import os
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+from dotenv import load_dotenv
+
+# Try to load Supabase client
+try:
+    from supabase import createClient, Client
+    load_dotenv()
+    
+    supabase_url = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+    supabase_key = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    
+    if not supabase_url or not supabase_key:
+        print('⚠️  Supabase credentials not found')
+        print('Database upload will be skipped')
+        supabase = None
+    else:
+        print('✅ Supabase client initialized')
+        supabase: Client = createClient(supabase_url, supabase_key)
+except ImportError:
+    print('⚠️  Supabase client not available, install with: pip install supabase')
+    supabase = None
+
+# ========================================
+# METADATA EXTRACTION FUNCTIONS
+# ========================================
+
+def extract_nodes(workflow: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract all nodes from workflow"""
+    nodes = []
+    
+    if 'nodes' in workflow and isinstance(workflow['nodes'], list):
+        nodes = workflow['nodes']
+    elif 'nodes' in workflow and isinstance(workflow['nodes'], dict):
+        nodes = [workflow['nodes']]
+    
+    return nodes
+
+def extract_connections(workflow: Dict[str, Any]) -> Dict[str, int]:
+    """Count connections between nodes"""
+    connections = {}
+    nodes = extract_nodes(workflow)
+    
+    for node in nodes:
+        node_id = node.get('id', 'unknown')
+        if node_id in node.get('connections', {}):
+            for target_id, count in node['connections'][node_id].items():
+                connections[target_id] = connections.get(target_id, 0) + count
+    
+    return connections
+
+def extract_triggers(workflow: Dict[str, Any]) -> List[str]:
+    """Extract trigger node types"""
+    triggers = []
+    nodes = extract_nodes(workflow)
+    
+    for node in nodes:
+        node_type = node.get('type', '').lower()
+        if node_type in ['n8n-nodes-base.trigger', 'n8n-nodes-base.webhook', 'n8n-nodes-base.scheduleTrigger']:
+            triggers.append(node_type)
+    
+    return list(set(triggers))
+
+def extract_actions(workflow: Dict[str, Any]) -> List[str]:
+    """Extract action node types"""
+    actions = []
+    nodes = extract_nodes(workflow)
+    
+    for node in nodes:
+        node_type = node.get('type', '').lower()
+        if node_type in ['n8n-nodes-base.function', 'n8n-nodes-base.functionCall']:
+            actions.append(node_type)
+        elif node_type in ['n8n-nodes-base.httpRequest']:
+            actions.append('http-request')
+        elif node_type in ['n8n-nodes-base.set']:
+            actions.append('set')
+        elif node_type in ['n8n-nodes-base.get']:
+            actions.append('get')
+        elif node_type in ['n8n-nodes-base.if', 'n8n-nodes-base.switch']:
+            actions.append('if-else')
+    
+    return list(set(actions))
+
+def extract_integrations(workflow: Dict[str, Any]) -> List[str]:
+    """Extract integrations from node names"""
+    integrations = []
+    nodes = extract_nodes(workflow)
+    
+    integration_keywords = {
+        'email': ['imap', 'smtp', 'gmail', 'outlook', 'mailchimp', 'sendgrid', 'brevo', 'postmark', 'sparkpost', 'ses'],
+        'social': ['twitter', 'facebook', 'instagram', 'linkedin', 'pinterest', 'tiktok', 'youtube', 'discord', 'slack', 'telegram', 'whatsapp', 'medium', 'reddit', 'notion'],
+        'ecommerce': ['shopify', 'woocommerce', 'magento', 'bigcommerce', 'opencart', 'salesforce', 'stripe', 'paypal', 'braintree', 'square', 'adyen'],
+        'storage': ['google-sheets', 'notion', 'airtable', 'excel', 'dropbox', 'onedrive', 'box', 'aws-s3', 'cloudinary', 'firebase'],
+        'communication': ['twilio', 'nexmo', 'plivo', 'sendinblue', 'messagebird', 'webhook', 'mattermost', 'rocketchat'],
+        'ai': ['openai', 'anthropic', 'cohere', 'claude', 'gemini', 'gpt-4', 'llama', 'huggingface', 'langchain', 'pinecone'],
+        'database': ['mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch', 'firestore', 'supabase', 'mongodb', 'airtable', 'notion'],
+        'data': ['json', 'xml', 'csv', 'api', 'webhook', 'http-request', 'transform', 'parse'],
+        'finance': ['stripe', 'paypal', 'braintree', 'square', 'quickbooks', 'xero', 'freshbooks', 'wave', 'plaid', 'notion'],
+        'productivity': ['trello', 'asana', 'jira', 'basecamp', 'notion', 'slack', 'discord', 'google-calendar', 'outlook-calendar'],
+        'marketing': ['mailchimp', 'hubspot', 'salesforce', 'mailgun', 'sendgrid', 'convertkit', 'clevertap', 'activecampaign'],
+        'crm': ['hubspot', 'salesforce', 'pipedrive', 'airtable', 'notion', 'monday', 'zoho'],
+        'analytics': ['google-analytics', 'mixpanel', 'amplitude', 'segment', 'hotjar', 'posthog', 'plausible', 'fathom'],
+        'automation': ['zapier', 'make', 'ifttt', 'integromat', 'parabola', 'tray.io', 'automateio', 'power-automate'],
+        'cloud': ['aws', 'azure', 'gcp', 'digitalocean', 'heroku', 'vercel', 'netlify', 'cloudflare', 'firebase'],
+        'api': ['rest', 'graphql', 'webhook', 'http-request', 'api', 'json', 'xml', 'csv', 'api-gateway'],
+        'dev': ['github', 'gitlab', 'bitbucket', 'code', 'git', 'vercel', 'netlify', 'webhook'],
+        'security': ['auth0', 'okta', 'cognito', 'lastpass', 'vault', 'encryption', 'ssh', 'ssl', 'oauth', 'jwt'],
+        'files': ['google-drive', 'dropbox', 'onedrive', 'box', 'aws-s3', 'cloudinary', 'firebase'],
+        'search': ['algolia', 'elasticsearch', 'opensearch', 'meilisearch', 'typesense', 'pinecone', 'weaviate', 'pgvector'],
+        'n8n': ['n8n', 'node', 'workflow', 'webhook', 'integration', 'trigger', 'action', 'function', 'http-request', 'api', 'json', 'xml', 'csv']
+    }
+    
+    for node in nodes:
+        node_name = node.get('name', '').lower()
+        node_type = node.get('type', '').lower()
+        
+        for category, keywords in integration_keywords.items():
+            if node_type == 'n8n-nodes-base.' + category or category in node_name:
+                integrations.append(category)
+                if len(integrations) >= 20:
+                    break
+                
+                for keyword in keywords:
+                    if keyword in node_name:
+                        integrations.append(category)
+    
+    return list(set(integrations))
+
+def calculate_complexity(nodes: List[Dict[str, Any]], connections: Dict[str, int]) -> str:
+    """Calculate complexity based on node count and connections"""
+    node_count = len(nodes)
+    connection_count = sum(connections.values())
+    
+    if node_count <= 3 and connection_count <= 3:
+        return 'simple'
+    elif node_count <= 8 and connection_count <= 10:
+        return 'medium'
+    else:
+        return 'complex'
+
+def calculate_difficulty(workflow: Dict[str, Any], complexity: str, integrations: List[str]) -> str:
+    """Calculate difficulty based on complexity and integrations"""
+    integrations = extract_integrations(workflow)
+    
+    has_ai = any(tech in integrations for tech in ['openai', 'anthropic', 'cohere', 'claude', 'gemini', 'gpt-4', 'llama', 'huggingface', 'langchain', 'pinecone'])
+    
+    unique_platforms = len(set([tech for tech in integrations for tech in ['shopify', 'woocommerce', 'stripe', 'gmail', 'outlook', 'slack', 'discord', 'whatsapp', 'webhook']))
+    
+    if complexity == 'simple' and not unique_platforms:
+        return 'beginner'
+    elif complexity == 'simple' and has_ai:
+        return 'intermediate'
+    elif complexity == 'medium' and unique_platforms <= 1:
+        return 'beginner'
+    elif complexity == 'medium' and unique_platforms >= 2:
+        return 'intermediate'
+    elif complexity == 'medium' and unique_platforms >= 2:
+        return 'advanced'
+    elif complexity == 'complex':
+        return 'advanced'
+    else:
+        return 'intermediate'
+
+def calculate_price(complexity: str, difficulty: str, integrations: List[str]) -> int:
+    """Calculate fair price based on value and complexity"""
+    base_price = {
+        'simple': 1,
+        'medium': 3,
+        'complex': 5,
+    }
+    
+    complexity_multiplier = {
+        'beginner': 1.0,
+        'intermediate': 1.3,
+        'advanced': 1.7,
+    }
+    
+    platform_bonus = 0
+    
+    valuable_platforms = ['stripe', 'shopify', 'salesforce', 'hubspot', 'aws', 'gcp', 'azure', 'digitalocean', 'heroku', 'vercel', 'netlify']
+    for platform in valuable_platforms:
+        if platform in ' '.join(integrations).lower():
+            platform_bonus += 2
+    
+    if 'openai' in integrations or 'anthropic' in integrations:
+        platform_bonus += 5
+    
+    price = int((base_price.get(complexity, 3) * complexity_multiplier.get(difficulty, 1.0) + platform_bonus))
+    
+    return min(price, 50)
+
+def generate_tags(workflow: Dict[str, Any], category: str) -> List[str]:
+    """Generate 10-20 smart tags based on workflow content"""
+    tags = []
+    
+    content = workflow.get('name', '').lower()
+    content += ' ' + workflow.get('description', '').lower()
+    
+    tag_keywords = {
+        'marketing': ['social', 'media', 'content', 'post', 'campaign', 'email', 'marketing', 'automate', 'schedule', 'twitter', 'facebook', 'instagram', 'linkedin', 'pinterest', 'tiktok', 'youtube', 'ad', 'promo', 'share'],
+        'ecommerce': ['shop', 'store', 'ecommerce', 'product', 'inventory', 'order', 'sale', 'checkout', 'payment', 'shopify', 'woocommerce', 'magento', 'bigcommerce', 'cart', 'shipping', 'fulfillment', 'refund', 'customer', 'invoice', 'stripe', 'paypal', 'braintree', 'square', 'adyen'],
+        'productivity': ['task', 'todo', 'project', 'calendar', 'schedule', 'reminder', 'time', 'track', 'manager', 'organize', 'plan', 'goal', 'productivity', 'trello', 'asana', 'jira', 'basecamp', 'notion', 'slack', 'discord', 'google'],
+        'customer-support': ['support', 'help', 'customer', 'ticket', 'chat', 'bot', 'ai', 'faq', 'query', 'answer', 'auto-reply', 'response', 'assist'],
+        'ai': ['ai', 'gpt', 'openai', 'chatgpt', 'claude', 'anthropic', 'cohere', 'gemini', 'llama', 'huggingface', 'langchain', 'pinecone', 'embed', 'vector', 'semantic', 'search', 'generate', 'write', 'text', 'code'],
+        'data': ['data', 'database', 'sql', 'json', 'csv', 'xml', 'api', 'webhook', 'sync', 'parse', 'transform', 'export', 'import', 'etl', 'pipeline', 'warehouse'],
+        'finance': ['finance', 'money', 'budget', 'expense', 'track', 'invoice', 'payment', 'stripe', 'paypal', 'braintree', 'square', 'quickbooks', 'xero', 'freshbooks', 'wave', 'plaid', 'notion'],
+        'communication': ['email', 'slack', 'discord', 'telegram', 'whatsapp', 'message', 'chat', 'bot', 'notification', 'alert', 'sms', 'send'],
+        'automation': ['automate', 'automation', 'auto', 'workflow', 'trigger', 'cron', 'schedule', 'webhook', 'api', 'integration', 'sync'],
+        'security': ['auth', 'security', 'encrypt', 'decrypt', 'jwt', 'oauth', 'token', 'api-key', 'webhook', 'verify', 'access', 'login', 'password'],
+        'files': ['file', 'upload', 'download', 'storage', 'cloud', 'google-drive', 'dropbox', 'onedrive', 'box', 'aws-s3', 'cloudinary', 'firebase'],
+        'search': ['search', 'find', 'query', 'filter', 'sort', 'embed', 'vector', 'semantic', 'similarity', 'index'],
+        'dev': ['api', 'webhook', 'rest', 'graphql', 'git', 'github', 'code', 'test', 'debug', 'deploy', 'build', 'function', 'lambda'],
+        'n8n': ['n8n', 'node', 'workflow', 'webhook', 'integration', 'trigger', 'action', 'function', 'http-request', 'api', 'json', 'xml', 'csv']
+    }
+    
+    max_tags = 20
+    
+    for tag_category, keywords in tag_keywords.items():
+        for keyword in keywords:
+            if keyword in content and tag_category not in tags:
+                tags.append(tag_category)
+                if len(tags) >= max_tags:
+                    break
+    
+    return tags
+
+def determine_category(workflow: Dict[str, Any], integrations: List[str], tags: List[str]) -> str:
+    """Auto-assign category based on integrations, tags, and content"""
+    tags = generate_tags(workflow, 'general')
+    
+    if 'marketing' in tags:
+        return 'marketing'
+    if 'ecommerce' in tags:
+        return 'ecommerce'
+    if 'productivity' in tags:
+        return 'productivity'
+    if 'customer-support' in tags:
+        return 'customer-support'
+    if 'ai' in tags:
+        return 'ai'
+    if 'data' in tags:
+        return 'data'
+    if 'communication' in tags:
+        return 'communication'
+    if 'social' in tags:
+        return 'social'
+    if 'automation' in tags:
+        return 'ai'
+    
+    integration_categories = {
+        'email': 'productivity',
+        'gmail': 'productivity',
+        'outlook': 'productivity',
+        'slack': 'communication',
+        'discord': 'communication',
+        'telegram': 'communication',
+        'whatsapp': 'communication',
+        'twilio': 'communication',
+        'mailchimp': 'marketing',
+        'sendgrid': 'marketing',
+        'shopify': 'ecommerce',
+        'woocommerce': 'ecommerce',
+        'stripe': 'finance',
+        'paypal': 'finance',
+        'braintree': 'finance',
+        'google-sheets': 'data',
+        'notion': 'productivity',
+        'airtable': 'data',
+        'github': 'dev',
+        'webhook': 'dev',
+        'openai': 'ai',
+        'anthropic': 'ai',
+        'cohere': 'ai',
+        'claude': 'ai',
+        'gemini': 'ai',
+        'gpt-4': 'ai',
+        'llama': 'ai',
+        'huggingface': 'ai',
+        'langchain': 'ai',
+        'pinecone': 'search',
+    }
+    
+    for integration in integrations:
+        if integration in integration_categories:
+            return integration_categories[integration]
+    
+    return 'general'
+
+def parse_workflow_json(file_path: str) -> Optional[Dict[str, Any]]:
+    """Parse n8n workflow JSON file"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            workflow = json.load(f)
+            return workflow
+    except json.JSONDecodeError:
+        print(f'❌ JSON decode error: {file_path}')
+        return None
+    except Exception as e:
+        print(f'❌ Error parsing {file_path}: {e}')
+        return None
+
+def extract_metadata(workflow: Dict[str, Any], file_path: str) -> Dict[str, Any]:
+    """Extract all metadata from workflow"""
+    nodes = extract_nodes(workflow)
+    triggers = extract_triggers(workflow)
+    actions = extract_actions(workflow)
+    integrations = extract_integrations(workflow)
+    connections = extract_connections(workflow)
+    
+    node_count = len(nodes)
+    connection_count = sum(connections.values())
+    complexity = calculate_complexity(nodes, connections)
+    difficulty = calculate_difficulty(workflow, complexity, integrations)
+    price = calculate_price(complexity, difficulty, integrations)
+    tags = generate_tags(workflow, 'general')
+    category = determine_category(workflow, integrations, tags)
+    
+    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+    
+    return {
+        'name': workflow.get('name', ''),
+        'description': workflow.get('description', ''),
+        'category': category,
+        'tags': tags,
+        'triggers': triggers,
+        'actions': actions,
+        'integrations': integrations,
+        'difficulty': difficulty,
+        'complexity': complexity,
+        'price': price,
+        'file_path': file_path,
+        'file_size': file_size,
+        'node_count': node_count,
+        'connection_count': connection_count,
+        'popularity': 0,
+        'rating': 0,
+        'created_at': datetime.now().isoformat(),
+        'updated_at': datetime.now().isoformat(),
+    }
+
+# ========================================
+# SUPABASE UPLOAD FUNCTIONS
+# ========================================
+
+def upload_workflow_to_supabase(supabase: Client, metadata: Dict[str, Any]) -> bool:
+    """Upload workflow metadata to Supabase"""
+    if not supabase:
+        print('⚠️ Supabase client not available, skipping upload')
+        return False
+    
+    try:
+        # Check if workflow exists
+        existing = supabase.table('workflows').select('id').eq('name', metadata['name']).execute()
+        
+        if existing.data:
+            # Update existing workflow
+            supabase.table('workflows').update({
+                'description': metadata['description'],
+                'category': metadata['category'],
+                'tags': metadata['tags'],
+                'triggers': metadata['triggers'],
+                'actions': metadata['actions'],
+                'integrations': metadata['integrations'],
+                'difficulty': metadata['difficulty'],
+                'complexity': metadata['complexity'],
+                'price': metadata['price'],
+                'file_size': metadata['file_size'],
+                'node_count': metadata['node_count'],
+                'connection_count': metadata['connection_count'],
+                'updated_at': metadata['updated_at'],
+            }).eq('id', existing.data[0]['id']).execute()
+            
+            print(f'✅ Updated workflow: {metadata["name"]}')
+        else:
+            # Insert new workflow
+            supabase.table('workflows').insert({
+                'name': metadata['name'],
+                'description': metadata['description'],
+                'category': metadata['category'],
+                'tags': metadata['tags'],
+                'triggers': metadata['triggers'],
+                'actions': metadata['actions'],
+                'integrations': metadata['integrations'],
+                'difficulty': metadata['difficulty'],
+                'complexity': metadata['complexity'],
+                'price': metadata['price'],
+                'file_size': metadata['file_size'],
+                'node_count': metadata['node_count'],
+                'connection_count': metadata['connection_count'],
+                'created_at': metadata['created_at'],
+                'updated_at': metadata['updated_at'],
+            }).execute()
+            
+            print(f'✅ Created workflow: {metadata["name"]}')
+        
+        return True
+    except Exception as e:
+        print(f'❌ Error uploading {metadata["name"]}: {e}')
+        return False
+
+def batch_upload_workflows(supabase: Client, workflows: List[Dict[str, Any]], batch_size: int = 100) -> Dict[str, Any]:
+    """Upload workflows in batches"""
+    results = {
+        'total': len(workflows),
+        'created': 0,
+        'updated': 0,
+        'failed': [],
+        'errors': []
+    }
+    
+    for i in range(0, len(workflows), batch_size):
+        batch = workflows[i:i + batch_size]
+        uploaded = 0
+        
+        for workflow in batch:
+            if upload_workflow_to_supabase(supabase, workflow):
+                uploaded += 1
+            else:
+                results['errors'].append(workflow['name'])
+                results['failed'] += 1
+        
+        results['created'] += uploaded
+        results['updated'] += uploaded
+        
+        print(f'📊 Batch {i//batch_size + 1}: {uploaded}/{len(batch)} uploaded, {results["failed"]} failed')
+        
+        if results['failed'] > 50:
+            print(f'⚠️  Too many failures, stopping')
+            break
+    
+    results['total'] = len(workflows)
+    return results
+
+# ========================================
+# MAIN INDEXING FUNCTION
+# ========================================
+
+def index_workflow_directory(directory: str) -> Dict[str, Any]:
+    """Index all workflow files in directory"""
+    workflows = []
+    errors = []
+    skipped = []
+    
+    print(f'🔍 Scanning directory: {directory}')
+    
+    file_count = len(list(Path(directory).rglob('*.json')))
+    print(f'📊 Total files to index: {file_count}')
+    
+    for root, dirs, files in os.walk(directory):
+        if not files:
+            continue
+        
+        for file in files:
+            if not file.name.endswith('.json'):
+                continue
+            
+            file_path = os.path.join(root, file)
+            
+            workflow = parse_workflow_json(file_path)
+            if not workflow:
+                errors.append(file_path)
+                skipped.append(file_path)
+                continue
+            
+            metadata = extract_metadata(workflow, file_path)
+            workflows.append(metadata)
+            
+            if len(workflows) % 100 == 0:
+                print(f'📊 Progress: {len(workflows)}/{file_count} workflows indexed', end='\r')
+            elif len(workflows) % 500 == 0:
+                print(f'📊 Progress: {len(workflows)}/{file_count} workflows indexed', end='\r')
+    
+    print(f'✅ Indexing complete!')
+    print(f'📊 Total workflows indexed: {len(workflows)}')
+    print(f'❌ Errors: {len(errors)}')
+    print(f'⏭ Skipped: {len(skipped)}')
+    print(f'')
+    
+    return {
+        'workflows': workflows,
+        'total': file_count,
+        'indexed': len(workflows),
+        'errors': errors,
+        'skipped': skipped,
+        'directory': directory,
+    }
+
+def main():
+    """Main function"""
+    print('')
+    print('=' * 60)
+    print('🚀 ENHANCED n8n WORKFLOW INDEXER')
+    print('=' * 60)
+    print('')
+    
+    workflow_dir = '/root/.openclaw/workspace/n8n-universe/workflows/all-workflows/N8N-universe'
+    
+    if not os.path.exists(workflow_dir):
+        print(f'❌ Workflow directory not found: {workflow_dir}')
+        return
+    
+    result = index_workflow_directory(workflow_dir)
+    
+    print('')
+    print('📦 Indexing Summary:')
+    print(f'📁 Directory: {result["directory"]}')
+    print(f'📊 Total Files: {result["total"]}')
+    print(f'✅ Indexed: {result["indexed"]}')
+    print(f'❌ Errors: {len(result["errors"])}')
+    print(f'⏭ Skipped: {result["skipped"]}')
+    print(f'')
+    
+    if supabase:
+        print('📤 Uploading workflows to Supabase...')
+        upload_results = batch_upload_workflows(supabase, result['workflows'], batch_size=100)
+        
+        print('')
+        print('📤 Upload Summary:')
+        print(f'✅ Created: {upload_results["created"]}')
+        print(f'🔄 Updated: {upload_results["updated"]}')
+        print(f'❌ Failed: {upload_results["failed"]}')
+        print(f'📊 Total: {upload_results["total"]}')
+        print(f'')
+        
+        if upload_results['failed'] > 0:
+            print(f'⚠️  Some workflows failed to upload')
+            for error in upload_results['errors'][:10]:
+                print(f'  ❌ {error}')
+    else:
+        print('⚠️  Supabase client not available, skipping upload')
+    
+    print('')
+    print('=' * 60)
+    print('✅ INDEXING COMPLETE!')
+    print('=' * 60)
+    print('')
+
+if __name__ == '__main__':
+    main()
