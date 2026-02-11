@@ -76,16 +76,20 @@ export default function PricingPage() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ tier })
+        body: JSON.stringify({
+          tier,
+          billing: billingPeriod === 'year' ? 'annual' : 'monthly',
+          userId: user.id
+        })
       });
 
       const data = await response.json();
 
-      if (data.success) {
+      if (response.ok && data.url) {
         // Redirect to Stripe checkout
-        window.location.href = data.checkout_url;
+        window.location.href = data.url;
       } else {
-        alert('Failed to create checkout: ' + data.error);
+        alert('Failed to create checkout: ' + (data.error || 'Unknown error'));
       }
     } catch (error) {
       console.error('Subscription error:', error);

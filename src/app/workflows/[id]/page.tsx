@@ -99,6 +99,35 @@ export default function WorkflowDetailPage() {
       return;
     }
 
+    // Check if workflow requires payment and user doesn't have a subscription
+    if (workflow && workflow.price > 0 && user.subscription_tier === 'free') {
+      // Redirect to checkout for one-time purchase
+      try {
+        const response = await fetch('/api/checkout/subscribe?type=purchase', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            workflowId: workflow.id,
+            userId: user.id
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.url) {
+          window.location.href = data.url;
+        } else {
+          alert('Failed to create checkout: ' + (data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Checkout error:', error);
+        alert('Failed to start checkout. Please try again.');
+      }
+      return;
+    }
+
     // Free tier: limited downloads per day
     if (user.subscription_tier === 'free' && workflow && workflow.download_count >= 3) {
       alert('Free tier: Maximum 3 downloads per day reached. Upgrade to Basic or Pro for unlimited downloads.');
