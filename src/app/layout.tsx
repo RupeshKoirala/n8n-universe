@@ -1,8 +1,7 @@
 import type { Metadata } from "next"
-// import { Inter } from "next/font/google" // Temporarily commented out due to module resolution issues
 import "./globals.css"
-
-// const inter = Inter({ subsets: ["latin"] })
+import Header from "@/components/header"
+import Footer from "@/components/footer"
 
 export const metadata: Metadata = {
   title: "n8n Universe - Automation Marketplace",
@@ -16,8 +15,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        {children}
+      <body className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-1">
+          {children}
+        </main>
+        <Footer />
       </body>
     </html>
   )
